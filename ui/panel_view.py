@@ -2,30 +2,15 @@ import customtkinter as ctk
 from tkinter import messagebox
 from typing import Optional, Callable
 import os
+
 class PanelView(ctk.CTkFrame):
-    """Vue d'un panel spécifique avec ses dossiers et fichiers"""
+    """Vue d'un panel - Affiche fichiers à la racine SANS dossier _root_"""
    
     PANEL_INFO = {
-        'certification': {
-            'name': 'Certification',
-            'icon': '📜',
-            'color': ('#28a745', '#1e7e34')
-        },
-        'entete': {
-            'name': 'En-tête',
-            'icon': '📋',
-            'color': ('#1f538d', '#14375e')
-        },
-        'interface_emp': {
-            'name': 'Interface Employés',
-            'icon': '👥',
-            'color': ('#17a2b8', '#138496')
-        },
-        'autre': {
-            'name': 'Autre',
-            'icon': '📦',
-            'color': ('#6c757d', '#5a6268')
-        }
+        'certification': {'name': 'Certification', 'icon': '📜', 'color': ('#28a745', '#1e7e34')},
+        'entete': {'name': 'En-tête', 'icon': '📋', 'color': ('#1f538d', '#14375e')},
+        'interface_emp': {'name': 'Interface Employés', 'icon': '👥', 'color': ('#17a2b8', '#138496')},
+        'autre': {'name': 'Autre', 'icon': '📦', 'color': ('#6c757d', '#5a6268')}
     }
    
     def __init__(self, parent, db, file_handler, panel: str,
@@ -47,20 +32,15 @@ class PanelView(ctk.CTkFrame):
             'color': ('#6c757d', '#5a6268')
         })
        
-        self.view_mode = "grid"  # Ajout: Mode par défaut (grid ou list)
+        self.view_mode = "grid"
        
-        # Créer l'interface
         self.create_widgets()
-       
-        # Charger le contenu
         self.load_content()
    
     def create_widgets(self):
-        """Créer les widgets"""
-        # En-tête avec fil d'Ariane
+        """Créer widgets"""
         self.create_breadcrumb()
        
-        # Zone principale scrollable
         self.content_scrollable = ctk.CTkScrollableFrame(
             self,
             fg_color=("gray95", "gray15"),
@@ -69,7 +49,7 @@ class PanelView(ctk.CTkFrame):
         self.content_scrollable.pack(fill="both", expand=True, pady=(10, 0))
    
     def create_breadcrumb(self):
-        """Créer le fil d'Ariane avec switch vue"""
+        """Créer fil d'Ariane"""
         breadcrumb_frame = ctk.CTkFrame(
             self,
             height=60,
@@ -79,11 +59,9 @@ class PanelView(ctk.CTkFrame):
         breadcrumb_frame.pack(fill="x", pady=(0, 10))
         breadcrumb_frame.pack_propagate(False)
        
-        # Container pour le contenu
         content_container = ctk.CTkFrame(breadcrumb_frame, fg_color="transparent")
         content_container.pack(fill="both", expand=True, padx=20)
        
-        # Icône et nom du panel
         header_frame = ctk.CTkFrame(content_container, fg_color="transparent")
         header_frame.pack(side="left", pady=15)
        
@@ -94,7 +72,6 @@ class PanelView(ctk.CTkFrame):
             text_color="white"
         ).pack(side="left")
        
-        # Récupérer le chemin si on est dans un sous-dossier
         if self.folder_id is not None:
             path = self.db.get_folder_path(self.folder_id)
            
@@ -116,7 +93,6 @@ class PanelView(ctk.CTkFrame):
                         ).pack(side="left", padx=5)
                    
                     if i == len(path) - 1:
-                        # Dossier courant
                         ctk.CTkLabel(
                             header_frame,
                             text=folder["name"],
@@ -124,7 +100,6 @@ class PanelView(ctk.CTkFrame):
                             text_color=("#ffeb3b", "#ffc107")
                         ).pack(side="left")
                     else:
-                        # Lien cliquable vers un parent
                         link_btn = ctk.CTkButton(
                             header_frame,
                             text=folder["name"],
@@ -138,7 +113,6 @@ class PanelView(ctk.CTkFrame):
                         )
                         link_btn.pack(side="left")
        
-        # Ajout: Switch pour vue liste/grille à droite
         view_switch_frame = ctk.CTkFrame(content_container, fg_color="transparent")
         view_switch_frame.pack(side="right", pady=15, padx=20)
        
@@ -149,55 +123,60 @@ class PanelView(ctk.CTkFrame):
         )
         self.view_switch.pack()
         if self.view_mode == "list":
-            self.view_switch.select()  # Activer si mode list
+            self.view_switch.select()
 
     def toggle_view_mode(self):
-        """Toggle entre vue grille et liste et rafraîchir"""
+        """Toggle vue"""
         self.view_mode = "list" if self.view_switch.get() else "grid"
         self.view_switch.configure(text="Vue Liste" if self.view_mode == "list" else "Vue Grille")
-        self.load_content()  # Rafraîchir le contenu
+        self.load_content()
 
     def navigate_to(self, folder_id: Optional[int]):
-        """Naviguer vers un dossier"""
+        """Naviguer"""
         if self.on_folder_open:
             self.on_folder_open(folder_id)
    
     def load_content(self):
-        """Charger le contenu du panel"""
-        # Nettoyer
+        """✅ CORRECTION CRITIQUE : Charger contenu en excluant _root_*"""
         for widget in self.content_scrollable.winfo_children():
             widget.destroy()
        
         try:
-            # Charger les sous-dossiers du panel
+            # Charger sous-dossiers (EXCLURE _root_*)
             subfolders = self.db.get_subfolders(self.folder_id, panel=self.panel if self.folder_id is None else None)
+            
+            # ✅ FILTRER _root_*
+            subfolders = [f for f in subfolders if not f['name'].startswith('_root_')]
            
-            # Charger les fichiers
+            # Charger fichiers
             files = []
             if self.folder_id is not None:
+                # Fichiers du dossier courant
                 files = self.db.get_files_in_folder(self.folder_id)
             else:
-                # Charger tous les fichiers du panel qui sont à la racine
+                # ✅ IMPORTANT : Fichiers de la racine (dossier _root_* inclus)
                 all_folders = self.db.get_subfolders(None, panel=self.panel)
-                for folder in all_folders:
-                    files.extend(self.db.get_files_in_folder(folder['id']))
+                
+                # Récupérer fichiers du dossier _root_* uniquement
+                root_folder = next((f for f in all_folders if f['name'].startswith('_root_')), None)
+                if root_folder:
+                    files = self.db.get_files_in_folder(root_folder['id'])
            
             if not subfolders and not files:
                 self.show_empty_state()
                 return
            
-            # Selon le mode de vue
             if self.view_mode == "grid":
                 self.load_grid_view(subfolders, files)
             else:
                 self.load_list_view(subfolders, files)
            
         except Exception as e:
-            print(f"❌ Erreur lors du chargement du contenu: {e}")
+            print(f"❌ Erreur chargement: {e}")
             self.show_error_state(str(e))
    
     def load_grid_view(self, subfolders: list, files: list):
-        """Charger en vue grille (comme original)"""
+        """Vue grille"""
         if subfolders:
             self.create_section_title("📁 Dossiers", len(subfolders))
            
@@ -219,20 +198,18 @@ class PanelView(ctk.CTkFrame):
                 self.create_file_card(files_frame, file)
 
     def load_list_view(self, subfolders: list, files: list):
-        """Charger en vue liste (tout en vertical)"""
+        """Vue liste"""
         list_frame = ctk.CTkFrame(self.content_scrollable, fg_color="transparent")
         list_frame.pack(fill="x", pady=10)
        
-        # Dossiers d'abord
         for folder in subfolders:
             self.create_folder_list_item(list_frame, folder)
        
-        # Fichiers ensuite
         for file in files:
             self.create_file_list_item(list_frame, file)
 
     def create_folder_list_item(self, parent, folder: dict):
-        """Carte pour dossier en vue liste (horizontale simple)"""
+        """Carte dossier liste"""
         card = ctk.CTkFrame(
             parent,
             height=60,
@@ -269,7 +246,7 @@ class PanelView(ctk.CTkFrame):
         card.bind('<Button-1>', lambda e: self.navigate_to(folder['id']))
 
     def create_file_list_item(self, parent, file: dict):
-        """Carte pour fichier en vue liste"""
+        """Carte fichier liste"""
         extension = file['filename'].rsplit('.', 1)[-1].lower() if '.' in file['filename'] else ''
         icon = self.file_handler.get_file_icon(extension)
        
@@ -309,7 +286,7 @@ class PanelView(ctk.CTkFrame):
         card.bind('<Button-1>', lambda e: self.open_file_with_viewer(file))
    
     def create_section_title(self, title: str, count: int):
-        """Créer un titre de section"""
+        """Titre section"""
         section_frame = ctk.CTkFrame(self.content_scrollable, fg_color="transparent")
         section_frame.pack(fill="x", pady=(20, 10))
        
@@ -322,7 +299,7 @@ class PanelView(ctk.CTkFrame):
         ).pack(side="left")
    
     def create_folder_card(self, parent, folder: dict, row: int, col: int):
-        """Créer une carte de dossier"""
+        """Carte dossier"""
         card = ctk.CTkFrame(
             parent,
             width=300,
@@ -379,7 +356,7 @@ class PanelView(ctk.CTkFrame):
         card.bind('<Leave>', on_leave)
    
     def create_file_card(self, parent, file: dict):
-        """Créer une carte de fichier"""
+        """Carte fichier"""
         extension = file['filename'].rsplit('.', 1)[-1].lower() if '.' in file['filename'] else ''
         icon = self.file_handler.get_file_icon(extension)
         is_pdf = extension == 'pdf'
@@ -448,9 +425,9 @@ class PanelView(ctk.CTkFrame):
         card.bind('<Double-Button-1>', lambda e, f=file: self.open_file_with_viewer(f))
    
     def open_file_with_viewer(self, file: dict):
-        """Ouvrir un fichier avec le bon viewer"""
+        """Ouvrir fichier"""
         if not os.path.exists(file['filepath']):
-            messagebox.showerror("Erreur", "❌ Le fichier n'existe plus")
+            messagebox.showerror("Erreur", "❌ Fichier n'existe plus")
             return
        
         extension = file['filename'].rsplit('.', 1)[-1].lower() if '.' in file['filename'] else ''
@@ -458,7 +435,7 @@ class PanelView(ctk.CTkFrame):
         if self.notification_manager:
             try:
                 self.notification_manager.show_app_notification(
-                    "📂 Ouverture de fichier",
+                    "📂 Ouverture",
                     f"Ouverture de '{file['filename']}'"
                 )
             except Exception as e:
@@ -469,26 +446,20 @@ class PanelView(ctk.CTkFrame):
                 from .pdf_viewer import PDFViewer
                 pdf_window = ctk.CTkToplevel(self.winfo_toplevel())
                 PDFViewer(pdf_window, file['filepath'], file['filename'])
-                print(f"✅ PDF ouvert dans le viewer intégré: {file['filename']}")
+                print(f"✅ PDF ouvert: {file['filename']}")
             except ImportError:
-                messagebox.showerror(
-                    "Erreur",
-                    "❌ Viewer PDF non disponible\n\nInstallez PyMuPDF: pip install PyMuPDF"
-                )
+                messagebox.showerror("Erreur", "❌ Viewer PDF non disponible")
             except Exception as e:
-                messagebox.showerror("Erreur", f"❌ Impossible d'ouvrir le PDF:\n{e}")
-                print(f"❌ Erreur ouverture PDF: {e}")
+                messagebox.showerror("Erreur", f"❌ Impossible d'ouvrir:\n{e}")
+                print(f"❌ Erreur PDF: {e}")
         else:
             success = self.file_handler.open_file(file['filepath'])
             if not success:
-                messagebox.showerror("Erreur", "❌ Impossible d'ouvrir le fichier")
+                messagebox.showerror("Erreur", "❌ Impossible d'ouvrir")
    
     def show_empty_state(self):
-        """Afficher l'état vide"""
-        empty_frame = ctk.CTkFrame(
-            self.content_scrollable,
-            fg_color="transparent"
-        )
+        """État vide"""
+        empty_frame = ctk.CTkFrame(self.content_scrollable, fg_color="transparent")
         empty_frame.pack(fill="both", expand=True, pady=100)
        
         ctk.CTkLabel(
@@ -506,17 +477,14 @@ class PanelView(ctk.CTkFrame):
        
         ctk.CTkLabel(
             empty_frame,
-            text="Connectez-vous en tant qu'administrateur\npour ajouter des fichiers et dossiers",
+            text="Connectez-vous en admin\npour ajouter des fichiers",
             font=ctk.CTkFont(size=14),
             text_color=("gray50", "gray70")
         ).pack()
    
     def show_error_state(self, error_message: str):
-        """Afficher l'état d'erreur"""
-        error_frame = ctk.CTkFrame(
-            self.content_scrollable,
-            fg_color="transparent"
-        )
+        """État erreur"""
+        error_frame = ctk.CTkFrame(self.content_scrollable, fg_color="transparent")
         error_frame.pack(fill="both", expand=True, pady=100)
        
         ctk.CTkLabel(
@@ -542,7 +510,7 @@ class PanelView(ctk.CTkFrame):
    
     @staticmethod
     def format_file_size(size: int) -> str:
-        """Formater la taille d'un fichier"""
+        """Formater taille"""
         if size == 0:
             return "0 B"
         for unit in ['B', 'KB', 'MB', 'GB']:
