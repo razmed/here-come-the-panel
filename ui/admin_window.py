@@ -6,7 +6,7 @@ import os
 import re
 
 class AdminWindow:
-    """Fenêtre d'administration modernisée avec support des panels"""
+    """Fenêtre d'administration - Import direct sans dossier racine"""
    
     PANEL_INFO = {
         'certification': {'name': 'Certification', 'icon': '📜', 'color': '#28a745'},
@@ -46,7 +46,6 @@ class AdminWindow:
    
     def create_widgets(self):
         """Créer les widgets"""
-        # ============= EN-TÊTE =============
         header = ctk.CTkFrame(
             self.root,
             height=80,
@@ -76,7 +75,6 @@ class AdminWindow:
         )
         close_button.pack(side="right", padx=30)
        
-        # ============= ZONE DRAG & DROP UNIVERSELLE =============
         dragdrop_container = ctk.CTkFrame(
             self.root,
             fg_color="transparent"
@@ -105,7 +103,7 @@ class AdminWindow:
             dragdrop_frame,
             text="⬇️ Glissez-déposez ici:\n\n"
                  "📁 UN OU PLUSIEURS DOSSIERS → Import complet avec arborescence\n"
-                 "📄 UN OU PLUSIEURS FICHIERS → Import direct\n\n"
+                 "📄 UN OU PLUSIEURS FICHIERS → Import direct à la racine\n\n"
                  "✅ Formats acceptés: .docx, .pdf, .xlsx",
             font=ctk.CTkFont(size=13),
             fg_color=("#ffffff", "#2a4a5a"),
@@ -119,7 +117,6 @@ class AdminWindow:
         self.drop_zone.dnd_bind('<<Drop>>', self.on_drop)
         self.drop_zone.bind('<Button-1>', lambda e: self.show_import_menu())
        
-        # ============= BARRE D'OUTILS =============
         toolbar = ctk.CTkFrame(
             self.root,
             fg_color="transparent"
@@ -146,7 +143,6 @@ class AdminWindow:
             )
             btn.pack(side="left", padx=5)
        
-        # ============= LISTE DES DOSSIERS =============
         list_frame = ctk.CTkFrame(
             self.root,
             fg_color="transparent"
@@ -161,11 +157,14 @@ class AdminWindow:
         self.folders_list.pack(fill="both", expand=True)
    
     def load_folders(self):
-        """Charger les dossiers du panel"""
+        """Charger les dossiers du panel (en excluant _root_*)"""
         for widget in self.folders_list.winfo_children():
             widget.destroy()
        
         root_folders = self.db.get_subfolders(None, panel=self.panel)
+        
+        # ✅ FILTRER les dossiers _root_*
+        root_folders = [f for f in root_folders if not f['name'].startswith('_root_')]
        
         if not root_folders:
             ctk.CTkLabel(
@@ -280,135 +279,65 @@ class AdminWindow:
             container.pack_forget()
    
     def parse_drop_paths(self, data: str) -> list:
-        """
-        ✅ PARSER ROBUSTE pour chemins multiples
-        Gère TOUS les formats de drop (Windows/Linux/Mac)
-        """
+        """Parser robuste pour chemins multiples"""
         paths = []
-        
-        # Debugging
-        print(f"\n{'='*70}")
-        print(f"🔍 DEBUG DROP - Data brute:")
-        print(f"   Type: {type(data)}")
-        print(f"   Longueur: {len(data)}")
-        print(f"   Contenu: {repr(data)}")
-        print(f"{'='*70}\n")
-        
-        # Nettoyer la chaîne
         data = data.strip()
         
-        # CAS 1: Format avec accolades multiples {path1} {path2}
         if '{' in data and '}' in data:
-            # Extraire tous les chemins entre accolades
             pattern = r'\{([^}]+)\}'
             matches = re.findall(pattern, data)
             if matches:
                 paths = [m.strip() for m in matches]
-                print(f"✅ Format accolades détecté: {len(paths)} chemins")
-        
-        # CAS 2: Format sans accolades mais avec espaces (chemins simples)
         elif ' ' in data and not ('{' in data or '}' in data):
-            # Détecter les chemins séparés par des espaces
-            # Mais attention aux espaces dans les noms de fichiers !
-            
-            # Stratégie: Chercher les extensions de fichiers connues
             parts = data.split()
             temp_path = ""
-            
             for part in parts:
                 temp_path += part
-                
-                # Vérifier si c'est un chemin valide
                 if os.path.exists(temp_path):
                     paths.append(temp_path)
                     temp_path = ""
                 else:
-                    # Continuer à construire le chemin (espace dans le nom)
                     temp_path += " "
-            
-            # Ajouter le dernier chemin si incomplet
             if temp_path.strip() and os.path.exists(temp_path.strip()):
                 paths.append(temp_path.strip())
-            
-            print(f"✅ Format espaces détecté: {len(paths)} chemins")
-        
-        # CAS 3: Format avec accolades simples {path}
         elif data.startswith('{') and data.endswith('}'):
             path = data[1:-1].strip()
             if path:
                 paths = [path]
-                print(f"✅ Format accolade unique: 1 chemin")
-        
-        # CAS 4: Chemin simple sans accolades
         else:
             if data:
                 paths = [data]
-                print(f"✅ Format simple: 1 chemin")
         
-        # Nettoyer et valider les chemins
         valid_paths = []
         for path in paths:
             path = path.strip().strip('{}').strip()
             if path and os.path.exists(path):
                 valid_paths.append(path)
-                print(f"   ✓ Chemin valide: {path}")
-            elif path:
-                print(f"   ✗ Chemin invalide: {path}")
-        
-        print(f"\n📊 RÉSULTAT: {len(valid_paths)} chemin(s) valide(s)\n")
         
         return valid_paths
    
     def on_drop(self, event):
-        """✅ HANDLER UNIVERSEL: Gère dossiers ET fichiers (MULTIPLE)"""
+        """Handler universel pour drop"""
         try:
             paths_raw = event.data
-            
-            # Parser les chemins de manière robuste
             paths = self.parse_drop_paths(paths_raw)
             
             if not paths:
-                messagebox.showwarning(
-                    "Attention",
-                    "❌ Aucun fichier ou dossier valide détecté\n\n"
-                    "Vérifiez que les éléments existent"
-                )
+                messagebox.showwarning("Attention", "❌ Aucun élément valide")
                 return
             
-            # Afficher un résumé
-            print(f"\n🎯 TRAITEMENT DE {len(paths)} ÉLÉMENT(S):")
-            for i, p in enumerate(paths, 1):
-                print(f"   {i}. {p}")
-            print()
+            folders = [p for p in paths if os.path.isdir(p)]
+            files = [p for p in paths if os.path.isfile(p)]
             
-            # Trier: dossiers et fichiers
-            folders = []
-            files = []
-            
-            for path in paths:
-                if os.path.isdir(path):
-                    folders.append(path)
-                elif os.path.isfile(path):
-                    files.append(path)
-            
-            print(f"📁 Dossiers: {len(folders)}")
-            print(f"📄 Fichiers: {len(files)}\n")
-            
-            # Traiter les dossiers
             if folders:
                 for folder_path in folders:
                     self.import_folder_confirmed(folder_path)
             
-            # Traiter les fichiers
             if files:
-                self.import_files_directly(files)
+                self.import_files_to_root_direct(files)
         
         except Exception as e:
-            messagebox.showerror(
-                "Erreur",
-                f"❌ Erreur lors du traitement du drop:\n\n{e}"
-            )
-            print(f"❌ ERREUR DROP: {e}")
+            messagebox.showerror("Erreur", f"❌ Erreur:\n\n{e}")
             import traceback
             traceback.print_exc()
    
@@ -417,9 +346,9 @@ class AdminWindow:
         folder_name = os.path.basename(folder_path)
         response = messagebox.askyesno(
             "Confirmation",
-            f"📁 Voulez-vous importer le dossier :\n\n{folder_name}\n\n"
-            f"✅ Dans le panel: {self.panel_info['name']}\n"
-            "✅ Tous les fichiers (.pdf, .docx, .xlsx)\n"
+            f"📁 Importer le dossier :\n\n{folder_name}\n\n"
+            f"✅ Panel: {self.panel_info['name']}\n"
+            "✅ Tous les fichiers\n"
             "✅ L'arborescence complète",
             icon='question'
         )
@@ -427,32 +356,19 @@ class AdminWindow:
         if response:
             self.import_folder_path(folder_path)
    
-    def import_files_directly(self, file_paths: list):
-        """✅ Importer directement plusieurs fichiers droppés"""
+    def import_files_to_root_direct(self, file_paths: list):
+        """✅ SOLUTION FINALE : Import direct SANS CRÉER DE DOSSIER"""
         try:
             valid_files = [f for f in file_paths if self.file_handler.is_allowed_file(os.path.basename(f))]
            
             if not valid_files:
-                messagebox.showwarning(
-                    "Attention",
-                    "⚠️ Aucun fichier valide à importer\n\n"
-                    "Formats acceptés: PDF, Word (.docx), Excel (.xlsx)"
-                )
+                messagebox.showwarning("Attention", "⚠️ Aucun fichier valide")
                 return
            
-            print(f"\n📦 IMPORT DE {len(valid_files)} FICHIER(S):")
-            for f in valid_files:
-                print(f"   • {os.path.basename(f)}")
-            print()
+            print(f"\n📦 IMPORT DIRECT: {len(valid_files)} FICHIER(S)")
            
-            # Créer un dossier d'import temporaire
-            from datetime import datetime
-            folder_name = f"Import Direct - {datetime.now().strftime('%d-%m-%Y %H-%M-%S')}"
-            folder_id = self.db.create_folder(folder_name, None, self.panel)
-           
-            # Fenêtre de progression
             progress_window = ctk.CTkToplevel(self.root)
-            progress_window.title("Importation en cours...")
+            progress_window.title("Importation...")
             progress_window.geometry("600x250")
             progress_window.transient(self.root)
             progress_window.grab_set()
@@ -464,29 +380,35 @@ class AdminWindow:
            
             ctk.CTkLabel(
                 progress_window,
-                text="⏳ Importation des fichiers...",
+                text="⏳ Importation...",
                 font=ctk.CTkFont(size=20, weight="bold"),
                 text_color=("#1f538d", "#00aaff")
             ).pack(pady=20)
            
-            progress_bar = ctk.CTkProgressBar(
-                progress_window,
-                width=500,
-                height=20
-            )
+            progress_bar = ctk.CTkProgressBar(progress_window, width=500, height=20)
             progress_bar.pack(pady=10)
             progress_bar.set(0)
            
             status_label = ctk.CTkLabel(
                 progress_window,
-                text=f"Traitement... (0/{len(valid_files)} fichiers)",
+                text=f"Traitement... (0/{len(valid_files)})",
                 font=ctk.CTkFont(size=14)
             )
             status_label.pack(pady=10)
-           
             progress_window.update()
            
-            # Importer chaque fichier
+            # ✅ CRÉER OU RÉCUPÉRER LE DOSSIER VIRTUEL _root_
+            root_folder_name = f"_root_{self.panel}"
+            root_folders = self.db.get_subfolders(None, panel=self.panel)
+            root_folder = next((f for f in root_folders if f['name'] == root_folder_name), None)
+            
+            if not root_folder:
+                root_folder_id = self.db.create_folder(root_folder_name, None, self.panel)
+                print(f"✅ Dossier virtuel créé: {root_folder_name} (ID: {root_folder_id})")
+            else:
+                root_folder_id = root_folder['id']
+                print(f"✅ Dossier virtuel existant: {root_folder_name} (ID: {root_folder_id})")
+            
             success_count = 0
             error_count = 0
             
@@ -494,46 +416,46 @@ class AdminWindow:
                 filename = os.path.basename(file_path)
                
                 try:
-                    success, dest_path = self.file_handler.save_file(
-                        file_path,
-                        filename,
-                        folder_name
-                    )
-                   
-                    if success:
-                        self.db.add_file(folder_id, filename, dest_path)
-                        success_count += 1
-                        print(f"   ✅ {filename} importé")
-                    else:
-                        error_count += 1
-                        print(f"   ❌ {filename} échec")
+                    # Copier dans uploads/
+                    dest_path = os.path.join(self.file_handler.upload_dir, filename)
+                    
+                    # Gérer doublons
+                    if os.path.exists(dest_path):
+                        base, ext = os.path.splitext(filename)
+                        counter = 1
+                        while os.path.exists(os.path.join(self.file_handler.upload_dir, f"{base}_{counter}{ext}")):
+                            counter += 1
+                        filename = f"{base}_{counter}{ext}"
+                        dest_path = os.path.join(self.file_handler.upload_dir, filename)
+                    
+                    import shutil
+                    shutil.copy2(file_path, dest_path)
+                    
+                    # Ajouter en BDD avec le dossier virtuel
+                    self.db.add_file(root_folder_id, filename, dest_path)
+                    success_count += 1
+                    print(f"   ✅ {filename}")
                 
                 except Exception as e:
                     error_count += 1
-                    print(f"   ❌ {filename} erreur: {e}")
+                    print(f"   ❌ {filename}: {e}")
                
                 progress = (i + 1) / len(valid_files)
                 progress_bar.set(progress)
-                status_label.configure(text=f"Traitement... ({i+1}/{len(valid_files)} fichiers)")
+                status_label.configure(text=f"Traitement... ({i+1}/{len(valid_files)})")
                 progress_window.update_idletasks()
            
             progress_window.destroy()
            
-            # Message de résultat
             if error_count == 0:
                 messagebox.showinfo(
                     "Succès",
-                    f"✅ Import réussi dans {self.panel_info['name']} !\n\n"
-                    f"📊 {success_count} fichier(s) importé(s)\n"
-                    f"📁 Dossier: {folder_name}"
+                    f"✅ Import réussi!\n\n📊 {success_count} fichier(s)"
                 )
             else:
                 messagebox.showwarning(
                     "Attention",
-                    f"⚠️ Import partiel:\n\n"
-                    f"✅ {success_count} fichier(s) importé(s)\n"
-                    f"❌ {error_count} fichier(s) en erreur\n\n"
-                    f"📁 Dossier: {folder_name}"
+                    f"✅ {success_count} importé(s)\n❌ {error_count} erreur(s)"
                 )
            
             self.load_folders()
@@ -545,12 +467,12 @@ class AdminWindow:
                     progress_window.destroy()
                 except:
                     pass
-            messagebox.showerror("Erreur", f"❌ Impossible d'importer:\n\n{e}")
+            messagebox.showerror("Erreur", f"❌ Impossible:\n\n{e}")
             import traceback
             traceback.print_exc()
    
     def show_import_menu(self):
-        """Afficher le menu d'import manuel"""
+        """Menu d'import"""
         menu = ctk.CTkToplevel(self.root)
         menu.title("Importation")
         menu.geometry("400x300")
@@ -564,13 +486,13 @@ class AdminWindow:
        
         ctk.CTkLabel(
             menu,
-            text="📦 Choisissez le type d'import",
+            text="📦 Type d'import",
             font=ctk.CTkFont(size=18, weight="bold")
         ).pack(pady=30)
        
         ctk.CTkButton(
             menu,
-            text="📁 Importer un Dossier Complet",
+            text="📁 Importer un Dossier",
             width=300,
             height=50,
             font=ctk.CTkFont(size=14, weight="bold"),
@@ -591,18 +513,15 @@ class AdminWindow:
         ).pack(pady=10)
    
     def import_folder_path(self, folder_path: str):
-        """Importer un dossier avec barre de progression"""
+        """Importer un dossier"""
         try:
             total_files = self.file_handler.count_files_to_import(folder_path)
             if total_files == 0:
-                messagebox.showwarning(
-                    "Attention",
-                    "⚠️ Aucun fichier valide à importer dans ce dossier"
-                )
+                messagebox.showwarning("Attention", "⚠️ Aucun fichier valide")
                 return
            
             progress_window = ctk.CTkToplevel(self.root)
-            progress_window.title("Importation en cours...")
+            progress_window.title("Importation...")
             progress_window.geometry("600x300")
             progress_window.transient(self.root)
             progress_window.grab_set()
@@ -614,72 +533,42 @@ class AdminWindow:
            
             ctk.CTkLabel(
                 progress_window,
-                text="⏳ Importation en cours...",
+                text="⏳ Importation...",
                 font=ctk.CTkFont(size=20, weight="bold"),
                 text_color=("#1f538d", "#00aaff")
             ).pack(pady=20)
            
-            self.progress_bar = ctk.CTkProgressBar(
-                progress_window,
-                width=500,
-                height=20,
-                mode="determinate"
-            )
+            self.progress_bar = ctk.CTkProgressBar(progress_window, width=500, height=20, mode="determinate")
             self.progress_bar.pack(pady=10)
             self.progress_bar.set(0)
            
             self.status_label = ctk.CTkLabel(
                 progress_window,
-                text=f"Préparation... (0/{total_files} fichiers)",
-                font=ctk.CTkFont(size=14),
-                text_color=("gray50", "gray60")
+                text=f"Préparation... (0/{total_files})",
+                font=ctk.CTkFont(size=14)
             )
             self.status_label.pack(pady=10)
-           
-            ctk.CTkLabel(
-                progress_window,
-                text="✅ Tous les fichiers (.docx, .pdf, .xlsx)\n"
-                    "✅ L'arborescence complète\n"
-                    "✅ Les sous-dossiers automatiquement",
-                font=ctk.CTkFont(size=12),
-                text_color=("#28a745", "#4ade80")
-            ).pack(pady=15)
-           
             progress_window.update()
            
             def progress_callback(current, total):
                 progress = current / total
                 self.progress_bar.set(progress)
-                self.status_label.configure(text=f"Importation... ({current}/{total} fichiers)")
+                self.status_label.configure(text=f"Importation... ({current}/{total})")
                 progress_window.update_idletasks()
-           
-            print(f"\n{'='*70}")
-            print(f"🚀 IMPORT PANEL {self.panel}: {folder_path}")
-            print(f"{'='*70}")
            
             count = self.file_handler.save_files_from_folder_with_panel(
                 folder_path, self.db, None, self.panel, progress_callback=progress_callback, total=total_files
             )
-           
-            print(f"{'='*70}")
-            print(f"✅ FIN: {count} fichiers")
-            print(f"{'='*70}\n")
            
             progress_window.destroy()
            
             if count > 0:
                 messagebox.showinfo(
                     "Succès",
-                    f"✅ Importation réussie dans {self.panel_info['name']} !\n\n"
-                    f"📊 {count} fichier(s) importé(s)\n"
-                    f"📁 {os.path.basename(folder_path)}"
+                    f"✅ Importation réussie!\n\n📊 {count} fichier(s)\n📁 {os.path.basename(folder_path)}"
                 )
             else:
-                messagebox.showwarning(
-                    "Attention",
-                    f"⚠️ Aucun fichier importé\n\n"
-                    f"Formats acceptés: PDF, Word, Excel"
-                )
+                messagebox.showwarning("Attention", "⚠️ Aucun fichier importé")
            
             self.load_folders()
             self.on_changes()
@@ -687,12 +576,12 @@ class AdminWindow:
         except Exception as e:
             if 'progress_window' in locals():
                 progress_window.destroy()
-            messagebox.showerror("Erreur", f"❌ Impossible d'importer:\n\n{e}")
+            messagebox.showerror("Erreur", f"❌ Impossible:\n\n{e}")
             import traceback
             traceback.print_exc()
    
     def create_folder(self):
-        """Créer un nouveau dossier dans le panel"""
+        """Créer un dossier"""
         dialog = ctk.CTkInputDialog(
             text=f"Nom du dossier dans {self.panel_info['name']}:",
             title="Nouveau Dossier"
@@ -702,18 +591,15 @@ class AdminWindow:
         if name and name.strip():
             try:
                 self.db.create_folder(name.strip(), None, self.panel)
-                messagebox.showinfo("Succès", f"✅ Dossier créé dans {self.panel_info['name']}")
+                messagebox.showinfo("Succès", "✅ Dossier créé")
                 self.load_folders()
                 self.on_changes()
             except Exception as e:
-                messagebox.showerror("Erreur", f"❌ Impossible de créer:\n{e}")
+                messagebox.showerror("Erreur", f"❌ Impossible:\n{e}")
    
     def add_subfolder(self, parent_id: int):
-        """Ajouter un sous-dossier"""
-        dialog = ctk.CTkInputDialog(
-            text="Nom du sous-dossier:",
-            title="Nouveau Sous-Dossier"
-        )
+        """Ajouter sous-dossier"""
+        dialog = ctk.CTkInputDialog(text="Nom du sous-dossier:", title="Nouveau Sous-Dossier")
         name = dialog.get_input()
        
         if name and name.strip():
@@ -723,82 +609,76 @@ class AdminWindow:
                 self.load_folders()
                 self.on_changes()
             except Exception as e:
-                messagebox.showerror("Erreur", f"❌ Impossible de créer:\n{e}")
+                messagebox.showerror("Erreur", f"❌ Impossible:\n{e}")
    
     def rename_folder(self, folder_id: int):
-        """Renommer un dossier"""
+        """Renommer dossier"""
         folder = self.db.get_folder(folder_id)
         if not folder:
             messagebox.showerror("Erreur", "❌ Dossier introuvable")
             return
        
-        dialog = ctk.CTkInputDialog(
-            text="Nouveau nom:",
-            title="Renommer le Dossier"
-        )
+        dialog = ctk.CTkInputDialog(text="Nouveau nom:", title="Renommer")
         dialog._entry.delete(0, "end")
         dialog._entry.insert(0, folder['name'])
-       
         new_name = dialog.get_input()
        
         if new_name and new_name.strip():
             try:
                 self.db.update_folder(folder_id, new_name.strip())
-                messagebox.showinfo("Succès", "✅ Dossier renommé")
+                messagebox.showinfo("Succès", "✅ Renommé")
                 self.load_folders()
                 self.on_changes()
             except Exception as e:
-                messagebox.showerror("Erreur", f"❌ Impossible de renommer:\n{e}")
+                messagebox.showerror("Erreur", f"❌ Impossible:\n{e}")
    
     def delete_folder(self, folder_id: int):
-        """Supprimer un dossier"""
+        """Supprimer dossier"""
         folder = self.db.get_folder(folder_id)
         if not folder:
-            messagebox.showerror("Erreur", "❌ Dossier introuvable")
+            messagebox.showerror("Erreur", "❌ Introuvable")
             return
        
         response = messagebox.askyesno(
             "Confirmation",
-            f"⚠️ Supprimer '{folder['name']}' ?\n\n"
-            "Tous les fichiers et sous-dossiers seront supprimés.",
+            f"⚠️ Supprimer '{folder['name']}' ?",
             icon='warning'
         )
        
         if response:
             try:
                 self.db.delete_folder(folder_id)
-                messagebox.showinfo("Succès", "✅ Dossier supprimé")
+                messagebox.showinfo("Succès", "✅ Supprimé")
                 self.load_folders()
                 self.on_changes()
             except Exception as e:
-                messagebox.showerror("Erreur", f"❌ Impossible de supprimer:\n{e}")
+                messagebox.showerror("Erreur", f"❌ Impossible:\n{e}")
    
     def manage_files(self, folder_id: int):
-        """Gérer les fichiers d'un dossier"""
+        """Gérer fichiers"""
         folder = self.db.get_folder(folder_id)
         if not folder:
-            messagebox.showerror("Erreur", "❌ Dossier introuvable")
+            messagebox.showerror("Erreur", "❌ Introuvable")
             return
        
         file_window = ctk.CTkToplevel(self.root)
         FileManagerWindow(file_window, self.db, self.file_handler, folder, self.on_changes)
    
     def import_folder(self):
-        """Importer un dossier"""
+        """Importer dossier"""
         folder_path = filedialog.askdirectory(title="Sélectionner un dossier")
-       
         if not folder_path:
             return
-       
         self.import_folder_confirmed(folder_path)
    
     def import_files(self):
-        """Importer des fichiers directement"""
-       
+        """Importer fichiers"""
         folders = self.db.get_all_folders(panel=self.panel)
+        # Filtrer _root_*
+        folders = [f for f in folders if not f['name'].startswith('_root_')]
        
         selector = ctk.CTkToplevel(self.root)
-        selector.title("Importer des fichiers")
+        selector.title("Importer fichiers")
         selector.geometry("500x600")
         selector.transient(self.root)
         selector.grab_set()
@@ -819,7 +699,7 @@ class AdminWindow:
        
         ctk.CTkLabel(
             header,
-            text=f"📄 Importer des fichiers",
+            text=f"📄 Importer fichiers",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="white"
         ).pack(pady=25)
@@ -833,14 +713,14 @@ class AdminWindow:
        
         ctk.CTkLabel(
             instructions,
-            text=f"📌 Choisissez la destination dans {self.panel_info['name']}",
+            text=f"📌 Destination dans {self.panel_info['name']}",
             font=ctk.CTkFont(size=14, weight="bold"),
             text_color=("#1f538d", "#2563a8")
         ).pack(pady=(15, 5))
        
         ctk.CTkLabel(
             instructions,
-            text="Vous pouvez importer à la racine ou dans un dossier existant",
+            text="Racine ou dossier existant",
             font=ctk.CTkFont(size=11),
             text_color=("gray50", "gray60")
         ).pack(pady=(0, 15))
@@ -864,7 +744,7 @@ class AdminWindow:
        
         root_btn = ctk.CTkButton(
             root_option,
-            text=f"🏠 Importer à la racine de {self.panel_info['name']}",
+            text=f"🏠 Racine de {self.panel_info['name']}",
             height=60,
             font=ctk.CTkFont(size=14, weight="bold"),
             fg_color="transparent",
@@ -881,7 +761,7 @@ class AdminWindow:
         if folders:
             ctk.CTkLabel(
                 scroll_frame,
-                text="━━━━━━━ ou dans un dossier existant ━━━━━━━",
+                text="━━━ ou dossier existant ━━━",
                 font=ctk.CTkFont(size=11),
                 text_color=("gray50", "gray60")
             ).pack(pady=15)
@@ -925,10 +805,9 @@ class AdminWindow:
         ).pack(pady=(0, 20))
    
     def select_and_import_files(self, folder_id: Optional[int]):
-        """Sélectionner et importer les fichiers dans le dossier spécifié"""
-       
+        """Sélectionner et importer fichiers"""
         file_paths = filedialog.askopenfilenames(
-            title="Sélectionner des fichiers à importer",
+            title="Sélectionner fichiers",
             filetypes=[
                 ("Tous supportés", "*.pdf *.docx *.xlsx *.doc *.xls"),
                 ("PDF", "*.pdf"),
@@ -942,17 +821,17 @@ class AdminWindow:
             return
        
         try:
-            success_count = 0
-            error_count = 0
-           
             if folder_id is None:
-                from datetime import datetime
-                folder_name = f"Fichiers importés - {datetime.now().strftime('%d-%m-%Y %H-%M')}"
-                folder_id = self.db.create_folder(folder_name, None, self.panel)
-                print(f"✅ Dossier créé pour l'import: {folder_name}")
-           
+                # Import à la racine
+                self.import_files_to_root_direct(list(file_paths))
+                return
+            
+            # Import dans dossier
             folder = self.db.get_folder(folder_id)
             folder_name = folder['name'] if folder else "Racine"
+            
+            success_count = 0
+            error_count = 0
            
             for file_path in file_paths:
                 filename = os.path.basename(file_path)
@@ -967,40 +846,33 @@ class AdminWindow:
                     if success:
                         self.db.add_file(folder_id, filename, dest_path)
                         success_count += 1
-                        print(f"✅ Fichier importé: {filename}")
                     else:
                         error_count += 1
-                        print(f"❌ Échec import: {filename}")
                 else:
                     error_count += 1
-                    print(f"⚠️ Extension non autorisée: {filename}")
            
             if error_count == 0:
                 messagebox.showinfo(
                     "Succès",
-                    f"✅ {success_count} fichier(s) importé(s) avec succès\n\n"
-                    f"📁 Destination: {folder_name}\n"
-                    f"📂 Panel: {self.panel_info['name']}"
+                    f"✅ {success_count} fichier(s) importé(s)\n\n📁 {folder_name}"
                 )
             else:
                 messagebox.showwarning(
                     "Attention",
-                    f"✅ {success_count} fichier(s) importé(s)\n"
-                    f"⚠️ {error_count} fichier(s) non importé(s)\n\n"
-                    f"Seuls les formats PDF, Word et Excel sont acceptés"
+                    f"✅ {success_count} importé(s)\n⚠️ {error_count} erreur(s)"
                 )
            
             self.load_folders()
             self.on_changes()
            
         except Exception as e:
-            messagebox.showerror("Erreur", f"❌ Impossible d'importer les fichiers:\n\n{e}")
+            messagebox.showerror("Erreur", f"❌ Impossible:\n\n{e}")
             import traceback
             traceback.print_exc()
 
 
 class FileManagerWindow:
-    """Fenêtre de gestion des fichiers modernisée"""
+    """Fenêtre gestion fichiers"""
    
     def __init__(self, root: ctk.CTkToplevel, db, file_handler, folder: dict, on_changes: Callable):
         self.root = root
@@ -1017,7 +889,7 @@ class FileManagerWindow:
         self.load_files()
    
     def center_window(self):
-        """Centrer la fenêtre"""
+        """Centrer"""
         self.root.update_idletasks()
         width = 900
         height = 650
@@ -1026,7 +898,7 @@ class FileManagerWindow:
         self.root.geometry(f'{width}x{height}+{x}+{y}')
    
     def create_widgets(self):
-        """Créer les widgets"""
+        """Widgets"""
         header = ctk.CTkFrame(
             self.root,
             height=80,
@@ -1086,7 +958,7 @@ class FileManagerWindow:
         self.selected_file_id = None
    
     def load_files(self):
-        """Charger les fichiers"""
+        """Charger fichiers"""
         for widget in self.files_list.winfo_children():
             widget.destroy()
        
@@ -1095,7 +967,7 @@ class FileManagerWindow:
         if not files:
             ctk.CTkLabel(
                 self.files_list,
-                text="📭 Aucun fichier\n\nAjoutez des fichiers avec le bouton ci-dessus",
+                text="📭 Aucun fichier",
                 font=ctk.CTkFont(size=16),
                 text_color=("gray50", "gray60")
             ).pack(expand=True, pady=100)
@@ -1105,7 +977,7 @@ class FileManagerWindow:
             self.create_file_card(file)
    
     def create_file_card(self, file: dict):
-        """Créer une carte de fichier"""
+        """Carte fichier"""
         extension = file['filename'].rsplit('.', 1)[-1].lower() if '.' in file['filename'] else ''
         icon = self.file_handler.get_file_icon(extension)
        
@@ -1169,7 +1041,7 @@ class FileManagerWindow:
         card.bind('<Double-Button-1>', lambda e: self.open_file())
    
     def select_file(self, file_id: int, card: ctk.CTkFrame):
-        """Sélectionner un fichier"""
+        """Sélectionner"""
         self.selected_file_id = file_id
        
         for widget in self.files_list.winfo_children():
@@ -1179,9 +1051,9 @@ class FileManagerWindow:
         card.configure(border_color=("#1f538d", "#2563a8"), border_width=3)
    
     def add_files(self):
-        """Ajouter des fichiers"""
+        """Ajouter"""
         file_paths = filedialog.askopenfilenames(
-            title="Sélectionner des fichiers",
+            title="Sélectionner fichiers",
             filetypes=[
                 ("Tous supportés", "*.pdf *.docx *.xlsx *.doc *.xls"),
                 ("PDF", "*.pdf"),
@@ -1217,72 +1089,61 @@ class FileManagerWindow:
                     error_count += 1
            
             if error_count == 0:
-                messagebox.showinfo(
-                    "Succès",
-                    f"✅ {success_count} fichier(s) ajouté(s)"
-                )
+                messagebox.showinfo("Succès", f"✅ {success_count} ajouté(s)")
             else:
-                messagebox.showwarning(
-                    "Attention",
-                    f"✅ {success_count} ajouté(s)\n"
-                    f"⚠️ {error_count} erreur(s)"
-                )
+                messagebox.showwarning("Attention", f"✅ {success_count}\n⚠️ {error_count} erreur(s)")
            
             self.load_files()
             self.on_changes()
            
         except Exception as e:
-            messagebox.showerror("Erreur", f"❌ Impossible d'ajouter:\n{e}")
+            messagebox.showerror("Erreur", f"❌ Impossible:\n{e}")
    
     def delete_file(self):
-        """Supprimer le fichier sélectionné"""
+        """Supprimer"""
         if not self.selected_file_id:
-            messagebox.showwarning("Attention", "⚠️ Veuillez sélectionner un fichier")
+            messagebox.showwarning("Attention", "⚠️ Sélectionnez un fichier")
             return
        
         file = self.db.get_file(self.selected_file_id)
         if not file:
-            messagebox.showerror("Erreur", "❌ Fichier introuvable")
+            messagebox.showerror("Erreur", "❌ Introuvable")
             return
        
-        response = messagebox.askyesno(
-            "Confirmation",
-            f"⚠️ Supprimer :\n\n{file['filename']} ?",
-            icon='warning'
-        )
+        response = messagebox.askyesno("Confirmation", f"⚠️ Supprimer:\n\n{file['filename']} ?", icon='warning')
        
         if response:
             try:
                 self.db.delete_file(self.selected_file_id)
-                messagebox.showinfo("Succès", "✅ Fichier supprimé")
+                messagebox.showinfo("Succès", "✅ Supprimé")
                 self.selected_file_id = None
                 self.load_files()
                 self.on_changes()
             except Exception as e:
-                messagebox.showerror("Erreur", f"❌ Impossible de supprimer:\n{e}")
+                messagebox.showerror("Erreur", f"❌ Impossible:\n{e}")
    
     def open_file(self):
-        """Ouvrir le fichier sélectionné"""
+        """Ouvrir"""
         if not self.selected_file_id:
-            messagebox.showwarning("Attention", "⚠️ Veuillez sélectionner un fichier")
+            messagebox.showwarning("Attention", "⚠️ Sélectionnez un fichier")
             return
        
         file = self.db.get_file(self.selected_file_id)
         if not file:
-            messagebox.showerror("Erreur", "❌ Fichier introuvable")
+            messagebox.showerror("Erreur", "❌ Introuvable")
             return
        
         if not os.path.exists(file['filepath']):
-            messagebox.showerror("Erreur", "❌ Le fichier n'existe pas")
+            messagebox.showerror("Erreur", "❌ Fichier n'existe pas")
             return
        
         success = self.file_handler.open_file(file['filepath'])
         if not success:
-            messagebox.showerror("Erreur", "❌ Impossible d'ouvrir le fichier")
+            messagebox.showerror("Erreur", "❌ Impossible d'ouvrir")
    
     @staticmethod
     def format_file_size(size: int) -> str:
-        """Formater la taille d'un fichier"""
+        """Formater taille"""
         for unit in ['B', 'KB', 'MB', 'GB']:
             if size < 1024.0:
                 return f"{size:.1f} {unit}"
