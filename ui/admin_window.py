@@ -164,22 +164,53 @@ class AdminWindow:
         root_folders = self.db.get_subfolders(None, panel=self.panel)
         
         # ✅ FILTRER les dossiers _root_*
-        root_folders = [f for f in root_folders if not f['name'].startswith('_root_')]
+        visible_folders = [f for f in root_folders if not f['name'].startswith('_root_')]
+        
+        # ✅ RÉCUPÉRER les fichiers du dossier _root_* pour affichage
+        root_folder = next((f for f in root_folders if f['name'].startswith('_root_')), None)
+        root_files = []
+        if root_folder:
+            root_files = self.db.get_files_in_folder(root_folder['id'])
        
-        if not root_folders:
+        if not visible_folders and not root_files:
             ctk.CTkLabel(
                 self.folders_list,
-                text=f"📭 Aucun dossier dans {self.panel_info['name']}\n\nCommencez par créer ou importer un dossier",
+                text=f"📭 Aucun contenu dans {self.panel_info['name']}\n\nCommencez par créer ou importer un dossier",
                 font=ctk.CTkFont(size=16),
                 text_color=("gray50", "gray60")
             ).pack(expand=True, pady=100)
             return
        
-        for folder in root_folders:
-            self.insert_folder_card(self.folders_list, folder, level=0)
+        # ✅ AFFICHER les fichiers de la racine EN PREMIER
+        if root_files:
+            root_label = ctk.CTkLabel(
+                self.folders_list,
+                text="📄 Fichiers à la racine",
+                font=ctk.CTkFont(size=14, weight="bold"),
+                text_color=("#1f538d", "#2563a8"),
+                anchor="w"
+            )
+            root_label.pack(fill="x", padx=15, pady=(10, 5))
+            
+            for file in root_files:
+                self.insert_file_card(self.folders_list, file, root_folder['id'])
+        
+        # ✅ AFFICHER les dossiers visibles
+        if visible_folders:
+            folders_label = ctk.CTkLabel(
+                self.folders_list,
+                text="📁 Dossiers",
+                font=ctk.CTkFont(size=14, weight="bold"),
+                text_color=("#1f538d", "#2563a8"),
+                anchor="w"
+            )
+            folders_label.pack(fill="x", padx=15, pady=(20, 5))
+            
+            for folder in visible_folders:
+                self.insert_folder_card(self.folders_list, folder, level=0)
    
     def insert_folder_card(self, parent, folder: dict, level: int):
-        """Insérer une carte de dossier"""
+        """Insérer une carte de dossier AVEC SES FICHIERS"""
         card = ctk.CTkFrame(
             parent,
             fg_color=("#ffffff", "#1e1e1e"),
@@ -200,8 +231,11 @@ class AdminWindow:
        
         subfolders = self.db.get_subfolders(folder['id'])
         has_subfolders = len(subfolders) > 0
+        
+        # ✅ RÉCUPÉRER LES FICHIERS DU DOSSIER
+        folder_files = self.db.get_files_in_folder(folder['id'])
        
-        if has_subfolders:
+        if has_subfolders or folder_files:
             expanded = ctk.BooleanVar(value=True)
             chevron = ctk.CTkLabel(
                 name_frame,
@@ -213,11 +247,26 @@ class AdminWindow:
            
             children_container = ctk.CTkFrame(parent, fg_color="transparent")
            
-            chevron.bind("<Button-1>", lambda e: self.toggle_expand(expanded, chevron, children_container, card))
+            def toggle_expand():
+                exp = not expanded.get()
+                expanded.set(exp)
+                chevron.configure(text='▼' if exp else '▶')
+                if exp:
+                    children_container.pack(fill="x", pady=0, after=card)
+                else:
+                    children_container.pack_forget()
+            
+            chevron.bind("<Button-1>", lambda e: toggle_expand())
            
             if expanded.get():
                 children_container.pack(fill="x", pady=0, after=card)
            
+            # ✅ AFFICHER LES FICHIERS DU DOSSIER EN PREMIER
+            if folder_files:
+                for file in folder_files:
+                    self.insert_file_card(children_container, file, folder['id'], level + 1)
+            
+            # ✅ AFFICHER LES SOUS-DOSSIERS APRÈS
             for subfolder in subfolders:
                 self.insert_folder_card(children_container, subfolder, level + 1)
        
@@ -267,16 +316,127 @@ class AdminWindow:
                 hover_color=hover_color,
                 command=command
             ).pack(side="left", padx=2)
-   
-    def toggle_expand(self, expanded_var: ctk.BooleanVar, chevron: ctk.CTkLabel, container: ctk.CTkFrame, card: ctk.CTkFrame):
-        """Gérer l'expansion/réduction d'un dossier"""
-        expanded = not expanded_var.get()
-        expanded_var.set(expanded)
-        chevron.configure(text='▼' if expanded else '▶')
-        if expanded:
-            container.pack(fill="x", pady=0, after=card)
-        else:
-            container.pack_forget()
+    
+    def insert_file_card(self, parent, file: dict, folder_id: int, level: int = 0):
+        """✅ NOUVELLE MÉTHODE : Insérer une carte de fichier dans la liste"""
+        extension = file['filename'].rsplit('.', 1)[-1].lower() if '.' in file['filename'] else ''
+        icon = self.file_handler.get_file_icon(extension)
+        
+        card = ctk.CTkFrame(
+            parent,
+            height=70,
+            fg_color=("#f8f9fa", "#2a2a2a"),
+            corner_radius=8,
+            border_width=1,
+            border_color=("gray70", "gray40")
+        )
+        card.pack(fill="x", padx=(level * 30 + 30, 10), pady=3)
+        card.pack_propagate(False)
+        
+        # Icône du fichier
+        ctk.CTkLabel(
+            card,
+            text=icon,
+            font=ctk.CTkFont(size=24),
+            width=60
+        ).pack(side="left", padx=10)
+        
+        # Informations du fichier
+        info_frame = ctk.CTkFrame(card, fg_color="transparent")
+        info_frame.pack(side="left", fill="both", expand=True, padx=5)
+        
+        ctk.CTkLabel(
+            info_frame,
+            text=file['filename'],
+            font=ctk.CTkFont(size=13, weight="bold"),
+            anchor="w"
+        ).pack(anchor="w")
+        
+        # Taille du fichier
+        try:
+            size = file.get('file_size', 0)
+            if size == 0 and os.path.exists(file['filepath']):
+                size = os.path.getsize(file['filepath'])
+            size_formatted = self.format_file_size(size)
+        except:
+            size_formatted = "N/A"
+        
+        is_pdf = self.file_handler.is_pdf(file['filename'])
+        type_text = f"{size_formatted} • {'🔒 PDF' if is_pdf else '💾 Téléchargeable'}"
+        
+        ctk.CTkLabel(
+            info_frame,
+            text=type_text,
+            font=ctk.CTkFont(size=10),
+            text_color=("gray50", "gray60"),
+            anchor="w"
+        ).pack(anchor="w")
+        
+        # Boutons d'action
+        button_frame = ctk.CTkFrame(card, fg_color="transparent")
+        button_frame.pack(side="right", padx=10)
+        
+        # Bouton Ouvrir
+        ctk.CTkButton(
+            button_frame,
+            text="👁️",
+            width=35,
+            height=30,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color=("#1f538d", "#14375e"),
+            hover_color=("#2563a8", "#1a4a7a"),
+            command=lambda: self.open_file_direct(file)
+        ).pack(side="left", padx=2)
+        
+        # Bouton Supprimer
+        ctk.CTkButton(
+            button_frame,
+            text="🗑️",
+            width=35,
+            height=30,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color=("#dc3545", "#b02a37"),
+            hover_color=("#e04555", "#c03545"),
+            command=lambda: self.delete_file_direct(file, folder_id)
+        ).pack(side="left", padx=2)
+    
+    def open_file_direct(self, file: dict):
+        """✅ Ouvrir un fichier directement"""
+        if not os.path.exists(file['filepath']):
+            messagebox.showerror("Erreur", "❌ Le fichier n'existe plus")
+            return
+        
+        success = self.file_handler.open_file(file['filepath'])
+        if not success:
+            messagebox.showerror("Erreur", "❌ Impossible d'ouvrir le fichier")
+    
+    def delete_file_direct(self, file: dict, folder_id: int):
+        """✅ Supprimer un fichier directement"""
+        response = messagebox.askyesno(
+            "Confirmation",
+            f"⚠️ Supprimer le fichier:\n\n{file['filename']} ?",
+            icon='warning'
+        )
+        
+        if response:
+            try:
+                self.db.delete_file(file['id'])
+                messagebox.showinfo("Succès", "✅ Fichier supprimé")
+                self.load_folders()
+                self.on_changes()
+            except Exception as e:
+                messagebox.showerror("Erreur", f"❌ Impossible de supprimer:\n{e}")
+    
+    @staticmethod
+    def format_file_size(size: int) -> str:
+        """Formater la taille d'un fichier"""
+        if size == 0:
+            return "0 B"
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size < 1024.0:
+                return f"{size:.1f} {unit}"
+            size /= 1024.0
+        return f"{size:.1f} TB"
    
     def parse_drop_paths(self, data: str) -> list:
         """Parser robuste pour chemins multiples"""
@@ -357,7 +517,7 @@ class AdminWindow:
             self.import_folder_path(folder_path)
    
     def import_files_to_root_direct(self, file_paths: list):
-        """✅ SOLUTION FINALE : Import direct SANS CRÉER DE DOSSIER"""
+        """✅ Import direct SANS CRÉER DE DOSSIER"""
         try:
             valid_files = [f for f in file_paths if self.file_handler.is_allowed_file(os.path.basename(f))]
            
@@ -1000,7 +1160,7 @@ class FileManagerWindow:
         ).pack(side="left", padx=20)
        
         info_frame = ctk.CTkFrame(card, fg_color="transparent")
-        info_frame.pack(side="left", fill="both", expand=True, padx=10)
+        info_frame.pack(side="left", fill="both", expand=True, padx=10, pady=15)
        
         ctk.CTkLabel(
             info_frame,
